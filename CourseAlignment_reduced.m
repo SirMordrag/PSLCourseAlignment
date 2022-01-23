@@ -11,9 +11,17 @@ Par.w_ie = 7.2921150e-5;                % Earth rate (in rad)
 Par.Fs = 2000;                          % the update rate for the IMU data - 2kHz
 Par.INITtime = 120;                     % time length of the CA in seconds
 %======== UPDATE transformation matrices sensor frame into ENU and ENU2NED
-Par.TRs2enu_SF = [];                    % update - converting ACC sensor frame into ENU Body frame
-Par.TRs2enu_W = [];                     % update - converting RLG sensor frame into ENU Body frame
-Par.TRenu2ned = [];                     % update - converting ENU 2 NED composition of the BODY frame
+
+% transformation matrices
+Cgyro_sensor2ENU = [1 0 0; 0 1 0; 0 0 1];
+Cacc_sensor2ENU = [1 0 0; 0 -1 0; 0 0 -1];
+C_enu2ned = [0 1 0; 1 0 0; 0 0 -1];
+C_ned2enu = C_enu2ned;
+% transformation matrices [END]
+
+Par.TRs2enu_SF = Cacc_sensor2ENU;                    % update - converting ACC sensor frame into ENU Body frame
+Par.TRs2enu_W = Cgyro_sensor2ENU;                    % update - converting RLG sensor frame into ENU Body frame
+Par.TRenu2ned = C_enu2ned;                           % update - converting ENU 2 NED composition of the BODY frame
 %----------------------------------------------------------------------------------------------------
 % Angular rates/gyroscopes parameters
 RawW.units = 'rad/s';
@@ -28,38 +36,57 @@ RawSF.TRcrossSF = [ +1.000015753716061, -0.000074996330332, -0.001769749784857; 
                     +0.001794379465053, +0.000123990276602, +1.000006652591802];    % in ENU
 RawSF.bias = [-0.000155131315863; +0.000222021609289; +0.000074785072052];          % RLG bias in ENU    
 %% Computation 
-%======== UPDATE Earth related parameters 
-WieN = ;                                                    % update - Earth rate vector in NED frame
+%======== UPDATE Earth related parameters
+
+% compute earth rate vector in NED frame
+% earth rate vector in ECEF
+lat = Par.LATini;
+lon = 0;
+earth_rate_ENU = [0; Par.w_ie*cos(lat); Par.w_ie*sin(lat)];
+% ECEF to NED using DCM
+DCM = [-sin(lat)*cos(lon) -sin(lat)*sin(lon) cos(lat); -sin(lon) cos(lon) 0; -cos(lat)*sin(lon) -cos(lat)*sin(lon) -sin(lat)];
+
+% transform earth rate from ENU to NED
+WieN =  Par.TRenu2ned * earth_rate_ENU;                    % update - Earth rate vector in NED frame
 gLOCAL = comp_gravity(Par.LATini, 0);                       % in m/s2 - it is recalculated according to the location of interest 
-gN = ;                                                      % local gravity vector
+gN = [0 0 gLOCAL];                                          % local gravity vector in NED
+% compute earth rate vector in NED frame [END]
+
 %-----------------------------------------------------------------------------------------------------
 %% Course Alinment calculations
 %------------ mean values in the INIT time length
 N = Par.Fs*Par.INITtime;        % CA length in No. of samples
 %======== UPDATE the mean values and std within the INIT time slot
-gMin = ; SFstd = ;
-wMin = ; Wstd = ;
+gMin = mean(SFin(1:N,:));
+SFstd = std(SFin(1:N,:));
+wMin = mean(Win(1:N,:));
+Wstd = std(Win(1:N,:));
 %======== UPDATE Compensation of sensor erros and transform resultant values into NED
-wM = ;              % update - compensated wMin       
-gM = ;              % update - compensated gMin; 
+wM = Par.TRenu2ned * RawW.TRcrossW*(Par.TRs2enu_W*(wMin') - RawW.bias);            % update - compensated wMin       
+gM = Par.TRenu2ned * RawSF.TRcrossSF*(Par.TRs2enu_SF*(gMin') - RawSF.bias);        % update - compensated gMin; 
 %----------------------------------------------------------------------------------------------------
 %% ======================================================
 % =============== Course alignment =====================
 % ======================================================
 %======== UPDATE
-.......             % update - the whole procedure should be performed here
-EAall = ;           % update - evaluate the Euler angles
+
+calculated_east = cross(wM, gM);
+actual_east = cross(WieN, gN)';
+
+% Rodriguez rotation, offset by 90 to get north-centric heading, not east-centric heading
+EAall = rodriguez_rot_to_eul(calculated_east, actual_east) + [0 0 90];
+
 %----------------------------------------------------------------------------------------------------
 %% ======================================================
 %======== UPDATE the results confirmation
 % PHI and THETA from accelerometers
-PHIacc = ;          % update - just for comperison
-THacc = ;           % update - just for comperison
+PHIacc = atan2(gM(1), gM(3)) + pi;          % update - just for comperison
+THacc = atan2(gM(2), gM(3)) + pi;           % update - just for comperison
 EAacc = ([PHIacc,THacc])*180/pi;    % conversion into [deg]
 %**************************************************************************
 Wstd = Wstd*180/pi; wM = wM*180/pi;
-fprintf('Mean of Wraw is [%f;%f;%f] deg/s, 1-sigma is [%f;%f;%f] deg/s\n',wM(1,1),wM(2,1),wM(3,1),Wstd(1,1),Wstd(2,1),Wstd(3,1));
-fprintf('Mean of SFraw is [%f;%f;%f] m/s2, 1-sigma is [%f;%f;%f] m/s2\n',-gM(1,1),-gM(2,1),-gM(3,1),SFstd(1,1),SFstd(2,1),SFstd(3,1));
+fprintf('Mean of Wraw is [%f;%f;%f] deg/s, 1-sigma is [%f;%f;%f] deg/s\n',wM(1),wM(2),wM(3),Wstd(1),Wstd(2),Wstd(3));
+fprintf('Mean of SFraw is [%f;%f;%f] m/s2, 1-sigma is [%f;%f;%f] m/s2\n',-gM(1),-gM(2),-gM(3),SFstd(1),SFstd(2),SFstd(3));
 fprintf('\nEstimated Euler angles within the INIT time slot is (deg):\n -- ROLL:%f, PITCH:%f, YAW:%f\n',EAall(1),EAall(2),EAall(3));
 fprintf('\nEuler angles taken from the ACC data is (deg):\n -- ROLL:%f, PITCH:%f\n',EAacc(1),EAacc(2));
 
