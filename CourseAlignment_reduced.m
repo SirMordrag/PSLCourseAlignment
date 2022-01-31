@@ -48,8 +48,8 @@ DCM = [-sin(lat)*cos(lon) -sin(lat)*sin(lon) cos(lat); -sin(lon) cos(lon) 0; -co
 
 % transform earth rate from ENU to NED
 WieN =  Par.TRenu2ned * earth_rate_ENU;                    % update - Earth rate vector in NED frame
-gLOCAL = comp_gravity(Par.LATini, 0);                       % in m/s2 - it is recalculated according to the location of interest 
-gN = [0 0 gLOCAL];                                          % local gravity vector in NED
+gLOCAL = comp_gravity(Par.LATini, 0);                      % in m/s2 - it is recalculated according to the location of interest 
+gN = [0 0 gLOCAL];                                         % local gravity vector in NED
 % compute earth rate vector in NED frame [END]
 
 %-----------------------------------------------------------------------------------------------------
@@ -70,19 +70,45 @@ gM = Par.TRenu2ned * RawSF.TRcrossSF*(Par.TRs2enu_SF*(gMin') - RawSF.bias);     
 % ======================================================
 %======== UPDATE
 
+% nas intuitivni pristup:
 calculated_east = cross(wM, gM);
 actual_east = cross(WieN, gN)';
 
 % Rodriguez rotation, offset by 90 to get north-centric heading, not east-centric heading
-EAall = rodriguez_rot_to_eul(calculated_east, actual_east) + [0 0 90];
+EAall = rodriguez_rot_to_eul(calculated_east, actual_east) - [0 0 90]
+
+% z paperu:
+
+gN = [0 0 gLOCAL];                                       
+gN = -gN';
+
+% s1
+C1_1 = [gN'; WieN'; cross(gN,WieN)'];
+C1_2 = [gM'; wM'; cross(gM, wM)'];
+C1 = C1_1\C1_2;
+
+% s2
+C2_1 = [gN'; cross(gN,WieN)'; cross(cross(gN,WieN),gN)'];
+C2_2 = [gM'; cross(gM,wM)'; cross(cross(gM,wM),gM)'];
+C2 = C2_1\C2_2;
+
+EAall1 = rad2deg(rotm2eul(C1));
+EAall2 = rad2deg(rotm2eul(C2));
+
+EAll_need_to_swap = (EAall1 + EAall2)./(2) - [90 0 0];
+EAall = zeros(1,3);
+EAall(1) = EAll_need_to_swap(2);
+EAall(2) = EAll_need_to_swap(3);
+EAall(3) = EAll_need_to_swap(1);
 
 %----------------------------------------------------------------------------------------------------
 %% ======================================================
 %======== UPDATE the results confirmation
 % PHI and THETA from accelerometers
-PHIacc = atan2(gM(1), gM(3)) + pi;          % update - just for comperison
-THacc = atan2(gM(2), gM(3)) + pi;           % update - just for comperison
-EAacc = ([PHIacc,THacc])*180/pi;    % conversion into [deg]
+PHIacc = atan2(gM(1), gM(3)) + pi;          % update - just for comparison
+THacc = atan2(gM(2), gM(3)) + pi;           % update - just for comparison
+EAacc = ([PHIacc,THacc])*180/pi;            % conversion into [deg]
+EAacc(1) = -1 * EAacc(1);
 %**************************************************************************
 Wstd = Wstd*180/pi; wM = wM*180/pi;
 fprintf('Mean of Wraw is [%f;%f;%f] deg/s, 1-sigma is [%f;%f;%f] deg/s\n',wM(1),wM(2),wM(3),Wstd(1),Wstd(2),Wstd(3));
