@@ -9,7 +9,7 @@ load('Win.mat'); Win = Win';
 Par.LATini = deg2rad(51.918465558);     % Latitude of where the data was measured.
 Par.w_ie = 7.2921150e-5;                % Earth rate (in rad)
 Par.Fs = 2000;                          % the update rate for the IMU data - 2kHz
-Par.INITtime = 120;                     % time length of the CA in seconds
+Par.INITtime = 10;                     % time length of the CA in seconds
 %======== UPDATE transformation matrices sensor frame into ENU and ENU2NED
 
 % transformation matrices
